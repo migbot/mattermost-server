@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mattermost/mattermost-server/model"
+	"github.com/mattermost/mattermost-server/store/storetest"
 )
 
 type TestConfig struct {
@@ -117,6 +118,9 @@ func TestConfigSet(t *testing.T) {
 	path := filepath.Join(dir, "config.json")
 	config := &model.Config{}
 	config.SetDefaults()
+	// Set the db to use from the testing and not from the default
+	dbSettings := storetest.MySQLSettings()
+	config.SqlSettings = *dbSettings
 	require.NoError(t, ioutil.WriteFile(path, []byte(config.ToJson()), 0600))
 
 	// Error when no arguments are given
