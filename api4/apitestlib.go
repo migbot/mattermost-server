@@ -21,7 +21,6 @@ import (
 	"github.com/mattermost/mattermost-server/mlog"
 	"github.com/mattermost/mattermost-server/model"
 	"github.com/mattermost/mattermost-server/store"
-	"github.com/mattermost/mattermost-server/store/sqlstore"
 	"github.com/mattermost/mattermost-server/utils"
 	"github.com/mattermost/mattermost-server/web"
 	"github.com/mattermost/mattermost-server/wsapi"
@@ -51,27 +50,18 @@ type TestHelper struct {
 	tempWorkspace     string
 }
 
-type persistentTestStore struct {
-	store.Store
-}
+// testStore tracks the active test store.
+// This is a bridge between the new testlib ownership of the test store and the existing usage
+// of the api4 test helper by many packages. In the future, this test helper would ideally belong
+// to the testlib altogether.
+var testStore store.Store
 
-func (*persistentTestStore) Close() {}
-
-var testStore *persistentTestStore
-
-// UseTestStore sets the database settings to use for tests. Once the tests are
-// complete (e.g. at the end of your TestMain implementation), you should call StopTestStore.
-func UseTestStore(settings *model.SqlSettings) {
-	testStore = &persistentTestStore{store.NewLayeredStore(sqlstore.NewSqlSupplier(*settings, nil), nil, nil)}
-}
-
-func StopTestStore() {
+func UseTestStore(store store.Store) {
+	testStore = store
 }
 
 func setupTestHelper(enterprise bool, updateConfig func(*model.Config)) *TestHelper {
-	if testStore != nil {
-		testStore.DropAllTables()
-	}
+	testStore.DropAllTables()
 
 	permConfig, err := os.Open(utils.FindConfigFile("config.json"))
 	if err != nil {
@@ -89,9 +79,7 @@ func setupTestHelper(enterprise bool, updateConfig func(*model.Config)) *TestHel
 	}
 
 	options := []app.Option{app.ConfigFile(tempConfig.Name()), app.DisableConfigWatch}
-	if testStore != nil {
-		options = append(options, app.StoreOverride(testStore))
-	}
+	options = append(options, app.StoreOverride(testStore))
 
 	s, err := app.NewServer(options...)
 	if err != nil {
@@ -110,9 +98,7 @@ func setupTestHelper(enterprise bool, updateConfig func(*model.Config)) *TestHel
 		cfg.EmailSettings.SendEmailNotifications = true
 	})
 	prevListenAddress := *th.App.Config().ServiceSettings.ListenAddress
-	if testStore != nil {
-		th.App.UpdateConfig(func(cfg *model.Config) { *cfg.ServiceSettings.ListenAddress = ":0" })
-	}
+	th.App.UpdateConfig(func(cfg *model.Config) { *cfg.ServiceSettings.ListenAddress = ":0" })
 	if updateConfig != nil {
 		th.App.UpdateConfig(updateConfig)
 	}
@@ -198,7 +184,6 @@ func (me *TestHelper) TearDown() {
 	utils.EnableDebugLogForTest()
 
 	if err := recover(); err != nil {
-		StopTestStore()
 		panic(err)
 	}
 }
